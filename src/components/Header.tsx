@@ -62,7 +62,12 @@ const Header: React.FC = () => {
                   <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
                     <User className="h-5 w-5 text-white" />
                   </div>
-                  <span className="hidden sm:block font-medium">{user?.name}</span>
+                  <div className="hidden sm:block">
+                    <span className="font-medium">{user?.name}</span>
+                    {user?.subscription?.status === 'active' && (
+                      <div className="text-xs text-green-600">Monthly Donor</div>
+                    )}
+                  </div>
                 </button>
                 
                 {isUserMenuOpen && (
@@ -75,6 +80,16 @@ const Header: React.FC = () => {
                       <Settings className="inline h-4 w-4 mr-2" />
                       Dashboard
                     </Link>
+                    {user?.role === 'admin' && (
+                      <Link
+                        to="/admin"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setIsUserMenuOpen(false)}
+                      >
+                        <Settings className="inline h-4 w-4 mr-2" />
+                        Admin Panel
+                      </Link>
+                    )}
                     <button
                       onClick={() => {
                         logout();

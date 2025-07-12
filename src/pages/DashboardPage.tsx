@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
-import { User, Heart, Clock, Award, Download, Edit, Camera, Mail, Phone, MapPin } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { User, Heart, Clock, Award, Download, Edit, Camera, Mail, Phone, MapPin, CreditCard } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const DashboardPage: React.FC = () => {
   const { user, updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [subscription, setSubscription] = useState<any>(null);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -12,31 +20,100 @@ const DashboardPage: React.FC = () => {
     address: user?.address || '',
   });
 
+  useEffect(() => {
+    if (user) {
+      loadUserData();
+    }
+  }, [user]);
+
+  const loadUserData = async () => {
+    if (!user?.accessToken) return;
+
+    try {
+      // Set auth token for requests
+      supabase.auth.setSession({
+        access_token: user.accessToken,
+        refresh_token: '',
+        expires_in: 3600,
+        token_type: 'bearer',
+        user: null as any
+      });
+
+      // Fetch subscription data
+      const { data: subscriptionData } = await supabase
+        .from('stripe_user_subscriptions')
+        .select('*')
+        .maybeSingle();
+
+      if (subscriptionData) {
+        setSubscription(subscriptionData);
+      }
+
+      // Fetch orders data
+      const { data: ordersData } = await supabase
+        .from('stripe_user_orders')
+        .select('*')
+        .order('order_date', { ascending: false })
+        .limit(10);
+
+      if (ordersData) {
+        setOrders(ordersData);
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const success = await updateProfile(formData);
     if (success) {
       setIsEditing(false);
-      alert('Profile updated successfully!');
+      // Show success message instead of alert
+      console.log('Profile updated successfully!');
     }
   };
 
-  const mockDonations = [
-    { id: '1', amount: 50, date: '2024-01-15', type: 'Monthly', status: 'Completed' },
-    { id: '2', amount: 100, date: '2024-01-01', type: 'One-time', status: 'Completed' },
-    { id: '3', amount: 75, date: '2023-12-15', type: 'Monthly', status: 'Completed' },
-  ];
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleDateString();
+  };
 
-  const mockVolunteerActivities = [
-    { id: '1', activity: 'Teaching at Local School', hours: 4, date: '2024-01-20' },
-    { id: '2', activity: 'Fundraising Event', hours: 6, date: '2024-01-18' },
-    { id: '3', activity: 'Community Outreach', hours: 3, date: '2024-01-15' },
-  ];
+  const formatCurrency = (amount: number, currency: string) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amount / 100);
+  };
 
-  const mockCertificates = [
-    { id: '1', title: 'Volunteer of the Month', date: '2024-01-01', type: 'Volunteer' },
-    { id: '2', title: 'Generous Donor Certificate', date: '2023-12-01', type: 'Donation' },
-  ];
+  const getSubscriptionStatus = () => {
+    if (!subscription) return 'No active subscription';
+    
+    switch (subscription.subscription_status) {
+      case 'active':
+        return 'Active Monthly Donor';
+      case 'past_due':
+        return 'Payment Past Due';
+      case 'canceled':
+        return 'Subscription Canceled';
+      case 'trialing':
+        return 'Trial Period';
+      default:
+        return subscription.subscription_status;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -62,6 +139,17 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <h2 className="text-xl font-semibold text-gray-900">{user?.name}</h2>
                 <p className="text-gray-600 capitalize">{user?.role}</p>
+                {subscription && (
+                  <div className="mt-2">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      subscription.subscription_status === 'active' 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {getSubscriptionStatus()}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Profile Form */}
@@ -140,55 +228,73 @@ const DashboardPage: React.FC = () => {
               </form>
             </div>
 
-            {/* Stats Cards */}
-            <div className="mt-6 space-y-4">
-              {user?.role === 'donor' && (
-                <div className="bg-white rounded-lg shadow p-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="bg-green-100 rounded-full p-2">
-                      <Heart className="h-5 w-5 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Total Donations</p>
-                      <p className="text-xl font-semibold text-gray-900">${user?.donations || 0}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {user?.role === 'volunteer' && (
-                <div className="bg-white rounded-lg shadow p-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="bg-blue-100 rounded-full p-2">
-                      <Clock className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Volunteer Hours</p>
-                      <p className="text-xl font-semibold text-gray-900">{user?.volunteer_hours || 0}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center space-x-3">
-                  <div className="bg-purple-100 rounded-full p-2">
-                    <Award className="h-5 w-5 text-purple-600" />
+            {/* Subscription Info */}
+            {subscription && (
+              <div className="mt-6 bg-white rounded-lg shadow p-4">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="bg-green-100 rounded-full p-2">
+                    <CreditCard className="h-5 w-5 text-green-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600">Certificates</p>
-                    <p className="text-xl font-semibold text-gray-900">{mockCertificates.length}</p>
+                    <p className="text-sm text-gray-600">Subscription Status</p>
+                    <p className="font-semibold text-gray-900">{getSubscriptionStatus()}</p>
                   </div>
                 </div>
+                {subscription.current_period_end && (
+                  <div className="text-sm text-gray-600">
+                    <p>Next billing: {formatDate(subscription.current_period_end)}</p>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </div>
 
           {/* Right Column - Activity */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Donation History */}
-            {user?.role === 'donor' && (
+            {/* Subscription Details */}
+            {subscription && (
               <div className="bg-white rounded-lg shadow">
                 <div className="px-6 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900">Donation History</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Subscription Details</h3>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600">Status</p>
+                      <p className="font-medium text-gray-900 capitalize">{subscription.subscription_status}</p>
+                    </div>
+                    {subscription.current_period_start && (
+                      <div>
+                        <p className="text-sm text-gray-600">Current Period</p>
+                        <p className="font-medium text-gray-900">
+                          {formatDate(subscription.current_period_start)} - {formatDate(subscription.current_period_end)}
+                        </p>
+                      </div>
+                    )}
+                    {subscription.payment_method_brand && (
+                      <div>
+                        <p className="text-sm text-gray-600">Payment Method</p>
+                        <p className="font-medium text-gray-900 capitalize">
+                          {subscription.payment_method_brand} ending in {subscription.payment_method_last4}
+                        </p>
+                      </div>
+                    )}
+                    {subscription.cancel_at_period_end && (
+                      <div>
+                        <p className="text-sm text-gray-600">Cancellation</p>
+                        <p className="font-medium text-red-600">Will cancel at period end</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Order History */}
+            {orders.length > 0 && (
+              <div className="bg-white rounded-lg shadow">
+                <div className="px-6 py-4 border-b border-gray-200">
+                  <h3 className="text-lg font-semibold text-gray-900">Recent Orders</h3>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -196,20 +302,26 @@ const DashboardPage: React.FC = () => {
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receipt</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {mockDonations.map((donation) => (
-                        <tr key={donation.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{donation.date}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${donation.amount}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{donation.type}</td>
+                      {orders.map((order) => (
+                        <tr key={order.order_id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(order.order_date).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {formatCurrency(order.amount_total, order.currency)}
+                          </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                              {donation.status}
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              order.payment_status === 'paid' 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {order.payment_status}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -226,63 +338,6 @@ const DashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* Volunteer Activities */}
-            {user?.role === 'volunteer' && (
-              <div className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900">Volunteer Activities</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Activity</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {mockVolunteerActivities.map((activity) => (
-                        <tr key={activity.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{activity.activity}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{activity.date}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{activity.hours} hours</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Certificates */}
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Certificates & Awards</h3>
-              </div>
-              <div className="p-6">
-                <div className="space-y-4">
-                  {mockCertificates.map((certificate) => (
-                    <div key={certificate.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className="bg-yellow-100 rounded-full p-2">
-                          <Award className="h-5 w-5 text-yellow-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{certificate.title}</p>
-                          <p className="text-sm text-gray-500">Issued on {certificate.date}</p>
-                        </div>
-                      </div>
-                      <button className="text-blue-600 hover:text-blue-900 flex items-center space-x-1">
-                        <Download className="h-4 w-4" />
-                        <span>Download</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
             {/* Quick Actions */}
             <div className="bg-white rounded-lg shadow">
               <div className="px-6 py-4 border-b border-gray-200">
@@ -290,26 +345,38 @@ const DashboardPage: React.FC = () => {
               </div>
               <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <button className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                  <a
+                    href="/donate"
+                    className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors block"
+                  >
                     <Heart className="h-8 w-8 text-red-500 mx-auto mb-2" />
-                    <p className="font-medium text-gray-900">Make a Donation</p>
-                    <p className="text-sm text-gray-500">Support our mission</p>
-                  </button>
-                  <button className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <p className="font-medium text-gray-900 text-center">Make a Donation</p>
+                    <p className="text-sm text-gray-500 text-center">Support our mission</p>
+                  </a>
+                  <a
+                    href="/volunteer"
+                    className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors block"
+                  >
                     <Clock className="h-8 w-8 text-blue-500 mx-auto mb-2" />
-                    <p className="font-medium text-gray-900">Volunteer</p>
-                    <p className="text-sm text-gray-500">Join our activities</p>
-                  </button>
-                  <button className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <p className="font-medium text-gray-900 text-center">Volunteer</p>
+                    <p className="text-sm text-gray-500 text-center">Join our activities</p>
+                  </a>
+                  <a
+                    href="/blog"
+                    className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors block"
+                  >
                     <Mail className="h-8 w-8 text-green-500 mx-auto mb-2" />
-                    <p className="font-medium text-gray-900">Newsletter</p>
-                    <p className="text-sm text-gray-500">Stay updated</p>
-                  </button>
-                  <button className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <p className="font-medium text-gray-900 text-center">Read Updates</p>
+                    <p className="text-sm text-gray-500 text-center">Stay informed</p>
+                  </a>
+                  <a
+                    href="/contact"
+                    className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors block"
+                  >
                     <Phone className="h-8 w-8 text-purple-500 mx-auto mb-2" />
-                    <p className="font-medium text-gray-900">Contact Us</p>
-                    <p className="text-sm text-gray-500">Get in touch</p>
-                  </button>
+                    <p className="font-medium text-gray-900 text-center">Contact Us</p>
+                    <p className="text-sm text-gray-500 text-center">Get in touch</p>
+                  </a>
                 </div>
               </div>
             </div>

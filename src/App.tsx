@@ -13,6 +13,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import AdminPage from './pages/AdminPage';
+import SuccessPage from './pages/SuccessPage';
 import Chatbot from './components/Chatbot';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -49,6 +50,7 @@ function App() {
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/admin" element={<AdminPage />} />
+                <Route path="/success" element={<SuccessPage />} />
               </Routes>
             </main>
             <Footer />
