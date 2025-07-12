@@ -12,6 +12,7 @@
   "dependencies": {
     "@stripe/react-stripe-js": "^3.7.0",
     "@stripe/stripe-js": "^7.4.0",
+    "@supabase/supabase-js": "^2.50.5",
     "chart.js": "^4.5.0",
     "html2pdf.js": "^0.10.3",
     "jspdf": "^3.0.1",
