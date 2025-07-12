@@ -1,18 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { User, Heart, Clock, Award, Download, Edit, Camera, Mail, Phone, MapPin, CreditCard } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const DashboardPage: React.FC = () => {
   const { user, updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -22,16 +18,33 @@ const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      loadUserData();
+      // Only try to load data if we have Supabase configured
+      if (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) {
+        loadUserData();
+      } else {
+        setLoading(false);
+        setDataError('Supabase not configured. Connect to Supabase to view subscription data.');
+      }
     }
   }, [user]);
 
   const loadUserData = async () => {
-    if (!user?.accessToken) return;
+    if (!user?.accessToken) {
+      setLoading(false);
+      return;
+    }
 
+    setLoading(true);
     try {
+      // Import Supabase dynamically to avoid errors if not configured
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_ANON_KEY
+      );
+
       // Set auth token for requests
-      supabase.auth.setSession({
+      await supabase.auth.setSession({
         access_token: user.accessToken,
         refresh_token: '',
         expires_in: 3600,
@@ -39,28 +52,43 @@ const DashboardPage: React.FC = () => {
         user: null as any
       });
 
-      // Fetch subscription data
-      const { data: subscriptionData } = await supabase
+      // Fetch subscription data with timeout
+      const subscriptionPromise = supabase
         .from('stripe_user_subscriptions')
         .select('*')
         .maybeSingle();
 
-      if (subscriptionData) {
-        setSubscription(subscriptionData);
-      }
-
-      // Fetch orders data
-      const { data: ordersData } = await supabase
+      // Fetch orders data with timeout
+      const ordersPromise = supabase
         .from('stripe_user_orders')
         .select('*')
         .order('order_date', { ascending: false })
         .limit(10);
 
-      if (ordersData) {
-        setOrders(ordersData);
+      // Set a timeout for the requests
+      const timeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 5000)
+      );
+
+      const [subscriptionResult, ordersResult] = await Promise.allSettled([
+        Promise.race([subscriptionPromise, timeout]),
+        Promise.race([ordersPromise, timeout])
+      ]);
+
+      if (subscriptionResult.status === 'fulfilled' && subscriptionResult.value.data) {
+        setSubscription(subscriptionResult.value.data);
+      }
+
+      if (ordersResult.status === 'fulfilled' && ordersResult.value.data) {
+        setOrders(ordersResult.value.data);
+      }
+
+      if (subscriptionResult.status === 'rejected' || ordersResult.status === 'rejected') {
+        setDataError('Unable to load subscription data. Please try again later.');
       }
     } catch (error) {
       console.error('Error loading user data:', error);
+      setDataError('Unable to connect to database. Please check your connection.');
     } finally {
       setLoading(false);
     }
@@ -71,8 +99,6 @@ const DashboardPage: React.FC = () => {
     const success = await updateProfile(formData);
     if (success) {
       setIsEditing(false);
-      // Show success message instead of alert
-      console.log('Profile updated successfully!');
     }
   };
 
@@ -103,17 +129,6 @@ const DashboardPage: React.FC = () => {
         return subscription.subscription_status;
     }
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your dashboard...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -251,8 +266,34 @@ const DashboardPage: React.FC = () => {
 
           {/* Right Column - Activity */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Loading State */}
+            {loading && (
+              <div className="bg-white rounded-lg shadow p-8 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading subscription data...</p>
+              </div>
+            )}
+
+            {/* Error State */}
+            {dataError && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                <div className="flex items-center space-x-2 mb-2">
+                  <CreditCard className="h-5 w-5 text-yellow-600" />
+                  <h3 className="text-lg font-semibold text-yellow-800">Subscription Data Unavailable</h3>
+                </div>
+                <p className="text-yellow-700 mb-4">{dataError}</p>
+                {!import.meta.env.VITE_SUPABASE_URL && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-blue-800 text-sm">
+                      <strong>To enable subscription features:</strong> Click the "Connect to Supabase" button in the top right corner to set up your database connection.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Subscription Details */}
-            {subscription && (
+            {subscription && !loading && (
               <div className="bg-white rounded-lg shadow">
                 <div className="px-6 py-4 border-b border-gray-200">
                   <h3 className="text-lg font-semibold text-gray-900">Subscription Details</h3>
@@ -291,7 +332,7 @@ const DashboardPage: React.FC = () => {
             )}
 
             {/* Order History */}
-            {orders.length > 0 && (
+            {orders.length > 0 && !loading && (
               <div className="bg-white rounded-lg shadow">
                 <div className="px-6 py-4 border-b border-gray-200">
                   <h3 className="text-lg font-semibold text-gray-900">Recent Orders</h3>
